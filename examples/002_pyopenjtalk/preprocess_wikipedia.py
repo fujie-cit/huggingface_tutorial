@@ -100,7 +100,7 @@ import os
 os.environ['HF_HOME'] = '/autofs/diamond3/share/cache/huggingface'
 
 # load wikipedia dataset
-from datasets import load_dataset, Dataset, DatasetDict
+from datasets import load_dataset, Dataset, DatasetDict, IterableDataset
 dataset = load_dataset('wikipedia', date='20240801', language='ja')
 
 # preprocess
@@ -114,32 +114,40 @@ from tqdm import tqdm
 import sys
 
 def data_generator():
-    for i, example in tqdm(enumerate(dataset['train']), desc='Processing', file=sys.stdout, total=len(dataset['train'])):
+    # for i, example in tqdm(enumerate(dataset['train']), desc='Processing', file=sys.stdout, total=len(dataset['train']), ncols=0):
+    for i, example in enumerate(dataset['train'].shuffle(seed=42).select(range(100_000))):
         text = example['text']
         example_id = example['id']
         normalized_texts = split_and_noramlize_text(text)
         for j, t in enumerate(normalized_texts):
-            tokens = tokenizer.tokenize(t)
+            if len(t) <= 0 or len(t) > 300:
+                continue
+            tokens = tokenizer(t, max_length=512, padding="max_length", truncation=True)
             # print(f"{len(t):04d}, {len(tokens):04d}: {' '.join(tokens)}")
             phones = pyopenjtalk_g2p_prosody(t)
             phones_text = ' '.join(phones)
             normalized_phones_text = normalize_neologd(phones_text, enable_remove_extra_spaces=False)
-            normalized_phones_tokens = tokenizer.tokenize(normalized_phones_text)
+            normalized_phones_tokens = tokenizer(normalized_phones_text, max_length=512, padding="max_length", truncation=True)
             # print(f"{len(normalized_phones_text):04d}, {len(normalized_phones_tokens):04d}: {' '.join(normalized_phones_tokens)}")
             # print(f"{example_id},{j},{t},{phones_text}")
-            yield {'id': example_id, 
-                   'sentence_id': j,
-                   'text': t, 
-                   'phones': phones_text,} 
+            data = {'id': example_id, 
+                    'sentence_id': j,
+                    'text': t, 
+                    'phones': phones_text,
+                    'normalized_phones': normalized_phones_text,}
+            data.update(tokens)
+            data.update({'labels': normalized_phones_tokens['input_ids']})
+            yield data
 
         # if i > 10:
-        #     break
+        #    break
 
 # build dataset
 print("Building dataset...")
 new_dataset = Dataset.from_generator(data_generator, cache_dir='./cache')
-# new_dataset.save_to_disk('./wikipedia_ja_20240801')
+# new_dataset = IterableDataset.from_generator(data_generator)
 print("Saving dataset...")
-new_dataset_dict = DatasetDict({'train': new_dataset})
-print("Saving dataset to disk...")
-new_dataset_dict.save_to_disk('./wikipedia_ja_20240801')
+new_dataset.save_to_disk('./wikipedia_ja_20240801')
+# new_dataset_dict = DatasetDict({'train': new_dataset})
+# print("Saving dataset to disk...")
+# new_dataset_dict.save_to_disk('./wikipedia_ja_20240801')
