@@ -103,8 +103,9 @@ trainer = Trainer(
 
 # %%
 enable_training = True
+resume_training = True
 if enable_training:
-    trainer.train()
+    trainer.train(resume_from_checkpoint=resume_training)
 
 model_dir=f"exp/{exp_name}/model"
 model.save_pretrained(model_dir)
